@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/tickets")
-public class LotteryTicketController { // позже надо имплементировать интерфейс. Узнать про возвращаемые типы
+public class LotteryTicketController { // довести до логического конца настройку очереди и проверить через постман
 
     private LotteryTicketMapperInterface mapper;
     private final MessageProducer messageProducer;
@@ -30,22 +30,17 @@ public class LotteryTicketController { // позже надо имплемент
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Void> getTicketById(@PathVariable("id") Long id) {
-        // Отправляем сообщение в очередь для получения билета по ID
-        messageProducer.sendMessage("GET:TicketById:" + id);
-
-        // Пока что не возвращаем данные из БД, это будет обработано через очередь
+    public ResponseEntity<LotteryTicketDTO> getTicketById(@PathVariable("id") Long id) {
+        LotteryTicket ticket = new LotteryTicket();
+        ticket.setId(id);
+        messageProducer.sendMessage("GET", ticket);
         return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 
     @PostMapping
-    public ResponseEntity<Void> createTicket(@RequestBody LotteryTicketDTO ticketDTO) {
-        // Преобразуем DTO в сущность
+    public ResponseEntity<LotteryTicketDTO> createTicket(@RequestBody LotteryTicketDTO ticketDTO) {
         LotteryTicket ticket = mapper.toEntity(ticketDTO);
-
-        // Отправляем сообщение в очередь для создания билета
-        messageProducer.sendMessage(ticket); // Отправляем сущность в очередь
-
+        messageProducer.sendMessage("CREATE", ticket);
         return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 

@@ -1,5 +1,6 @@
 package org.example.services;
 
+import org.example.dto.TicketMessageDTO;
 import org.example.entities.LotteryTicket;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,11 @@ public class MessageProducer {
     }
 
     public void sendMessage(String message) {
+        rabbitTemplate.convertAndSend("ticketQueue", message);
+    }
+
+    public void sendMessage(String requestType, LotteryTicket ticket) {
+        TicketMessageDTO message = new TicketMessageDTO(requestType, ticket);
         rabbitTemplate.convertAndSend("ticketQueue", message);
     }
 }
