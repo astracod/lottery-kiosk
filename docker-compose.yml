@@ -1,0 +1,16 @@
+version: '3'
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: my_project_rabbitmq
+    ports:
+      - "15672:15672"  # для доступа к веб-интерфейсу RabbitMQ
+      - "5672:5672"    # основной порт для соединений RabbitMQ
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq  # для сохранения данных RabbitMQ
+
+volumes:
+  rabbitmq_data:

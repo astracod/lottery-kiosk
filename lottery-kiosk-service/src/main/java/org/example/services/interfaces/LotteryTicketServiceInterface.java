@@ -14,4 +14,5 @@ public interface LotteryTicketServiceInterface {
 
     boolean deleteTicket(Long id);
 
+    void updateTicket(LotteryTicket updatedTicket);
 }

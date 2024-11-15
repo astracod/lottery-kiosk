@@ -42,5 +42,10 @@ public class LotteryTicketServiceImpl implements LotteryTicketServiceInterface {
         return lotteryTicketRepository.existsById(id);
     }
 
+    @Override
+    public void updateTicket(LotteryTicket updatedTicket) {
+        lotteryTicketRepository.save(updatedTicket);
+    }
+
 
 }

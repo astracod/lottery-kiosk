@@ -1,10 +1,14 @@
 package org.example.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
 import org.example.entities.LotteryTicket;
 
 import java.io.Serializable;
 
-public class TicketMessageDTO implements Serializable {
+@Data
+public class TicketMessageDTO {
+
     private String requestType;
     private LotteryTicket ticket;
 
@@ -13,6 +17,5 @@ public class TicketMessageDTO implements Serializable {
         this.ticket = ticket;
     }
 
-    // Getters and setters
 }
 
