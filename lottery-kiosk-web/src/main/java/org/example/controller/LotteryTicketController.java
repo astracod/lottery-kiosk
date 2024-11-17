@@ -89,6 +89,8 @@ public class LotteryTicketController implements LotteryTicketControllerInterface
         // Отправляем запрос на создание билета
         messageProducer.sendMessage("CREATE", ticket, correlationId);
 
+        // Разобраться с обратной отправкой и получением ответа
+
         // Ожидаем ответ
         String responseMessage = messageProducer.waitForResponse(correlationId);
 
