@@ -4,68 +4,85 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.dto.TicketMessageServiceDTO;
 import org.example.entities.LotteryTicket;
+import org.example.mappers.TransferTicketMapperInterface;
 import org.example.services.interfaces.LotteryTicketServiceInterface;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 @Service
 public class MessageService {
 
+    private static final Logger logger = LoggerFactory.getLogger(MessageService.class);
     private final RabbitTemplate rabbitTemplate;
     private final LotteryTicketServiceInterface lotteryTicketService;
+
+    private final TransferTicketMapperInterface transferMapper;
 
     private final ObjectMapper objectMapper;
 
     // Конструктор с инжекцией зависимостей
-    public MessageService(RabbitTemplate rabbitTemplate, LotteryTicketServiceInterface lotteryTicketService, ObjectMapper objectMapper) {
+    public MessageService(@Qualifier("rabbitTemplate") RabbitTemplate rabbitTemplate,
+                          LotteryTicketServiceInterface lotteryTicketService,
+                          TransferTicketMapperInterface transferMapper,
+                          @Qualifier("serviceMapper") ObjectMapper objectMapper) {
         this.rabbitTemplate = rabbitTemplate;
         this.lotteryTicketService = lotteryTicketService;
+        this.transferMapper = transferMapper;
         this.objectMapper = objectMapper;
     }
 
     // Метод для отправки сообщений в очередь RabbitMQ
     public void sendMessage(String queueName, String message) {
         rabbitTemplate.convertAndSend(queueName, message);
-        System.out.println("Message sent: " + message);
+        System.out.println("Message sent to Queue : "+queueName+" Message : " + message);
     }
 
     // Метод для получения сообщений из очереди
-    @RabbitListener(queues = "lotteryQueue")
-    public void receiveMessage(String message) {
-        // Логирование входящего сообщения
-        System.out.println("Received message: " + message);
+    @RabbitListener(queues = "requestQueue")
+    public void receiveMessage(String jsonTicket) throws InterruptedException {
 
+        System.out.println("Десериализуем JSON: " + jsonTicket);
         // Десериализация сообщения в DTO
-        TicketMessageServiceDTO messageServiceDTO = deserializeTicketData(message);
-        if (messageServiceDTO == null) {
-            System.out.println("Error deserializing message.");
-            return;
-        }
+        TicketMessageServiceDTO ticketMessage = deserializeTicketData(jsonTicket);
 
-        String requestType = messageServiceDTO.getRequestType();
-        LotteryTicket ticketData = messageServiceDTO.getTicket(); // ticketData теперь строка или объект
+        // Логирование входящего сообщения
+        System.out.println("Received message to Service module : " + ticketMessage);
+
+
+        String requestType = ticketMessage.getRequestType();
 
         try {
-            // Обработка запроса в зависимости от типа
-            switch (requestType) {
-                case "CREATE" -> handleCreate(ticketData);  // Передаем полный объект для создания
-                case "GET" -> {
-                    List<LotteryTicket> tickets = handleGet(ticketData);
-                    String response = ticketsToString(tickets);  // Конвертируем список билетов в JSON
-                    sendMessage("responseQueue", response);  // Отправляем JSON-ответ в очередь
+            // Проверка типа запроса для получения всех билетов
+            if ("GET_ALL".equals(requestType)) {
+                ticketMessage.setTicketList(handleGetAllTicket());
+                String jsonListString = serializeToJson(ticketMessage);
+                sendMessage("responseQueue", jsonListString);
+            }else {
+                LotteryTicket ticketData = ticketMessage.getTicket();
+                // Обработка остальных типов запросов
+                switch (requestType) {
+                    case "CREATE" -> handleCreate(ticketData);
+                    case "GET_BY_ID" -> {
+                        ticketMessage.setTicket(handleGetByID(ticketData));
+                        String jsonListString = serializeToJson(ticketMessage);
+                        sendMessage("responseQueue", jsonListString);
+                    }
+                    case "UPDATE" -> handleUpdate(ticketData);
+                    case "DELETE" -> handleDelete(ticketData);
+                    default -> System.out.println("Unknown request type: " + requestType);
                 }
-                case "UPDATE" -> handleUpdate(ticketData);  // Передаем полный объект для обновления
-                case "DELETE" -> handleDelete(ticketData);  // Передаем ID для удаления
-                default -> System.out.println("Unknown request type: " + requestType);
             }
+
         } catch (Exception e) {
-            System.err.println("Error processing message: " + message);
-            // Обработать ошибку (например, отправить в другую очередь)
+            System.out.printf("Обработан запрос типа: %s, сообщение: %s%n", requestType, e.getMessage());
         }
     }
 
@@ -90,25 +107,23 @@ public class MessageService {
     }
 
     // Обработка запроса на получение билета
-    private List<LotteryTicket> handleGet(LotteryTicket ticketData) {
-        if (ticketData.getId() == -100) {
-            // Запрос на получение всех билетов
-            List<LotteryTicket> allTickets = lotteryTicketService.printAllTickets(); // Предполагается, что метод возвращает список
-            System.out.println("All tickets have been retrieved.");
-            return allTickets;
+    private LotteryTicket handleGetByID(LotteryTicket ticketData) {
+
+        Optional<LotteryTicket> ticket = lotteryTicketService.getTicketById(ticketData.getId());
+        if (ticket.isPresent()) {
+            System.out.println("Ticket found: " + ticket.get());
+            return ticket.get();
         } else {
-            // Запрос на получение конкретного билета по ID
-            Optional<LotteryTicket> ticket = lotteryTicketService.getTicketById(ticketData.getId());
-            if (ticket.isPresent()) {
-                System.out.println("Ticket found: " + ticket.get());
-                return Collections.singletonList(ticket.get()); // Возвращаем билет как список с одним элементом
-            } else {
-                System.out.println("Ticket not found with ID: " + ticketData.getId());
-                return Collections.emptyList(); // Пустой список, если билет не найден
-            }
+            System.out.println("Ticket not found with ID: " + ticketData.getId());
+            return new LotteryTicket();
         }
     }
 
+    private List<LotteryTicket> handleGetAllTicket() {
+        List<LotteryTicket> allTickets = lotteryTicketService.printAllTickets();
+        System.out.println("All tickets have been retrieved.");
+        return allTickets;
+    }
 
     // Обработка запроса на обновление данных билета
     private void handleUpdate(LotteryTicket updatedTicket) {
@@ -140,9 +155,27 @@ public class MessageService {
         try {
             return objectMapper.readValue(ticketData, TicketMessageServiceDTO.class);
         } catch (JsonProcessingException e) {
-            System.out.println("Failed to deserialize ticket data: " + ticketData);
-            System.out.println("Error from Service: "+ e);
+            logger.error("Ошибка при десериализации: {}", e.getMessage(), e);
             return null;
         }
     }
+
+    private String serializeToJson(TicketMessageServiceDTO message) {
+        try {
+            return objectMapper.writeValueAsString(message);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private String serializeListToJson(List<TicketMessageServiceDTO> messages) {
+        try {
+            return objectMapper.writeValueAsString(messages);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
 }

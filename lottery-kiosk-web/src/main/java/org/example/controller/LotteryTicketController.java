@@ -4,99 +4,76 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.dto.LotteryTicketDTO;
+import org.example.dto.TicketMessageWebDTO;
 import org.example.entities.LotteryTicket;
 import org.example.mappers.LotteryTicketMapperInterface;
-import org.example.services.MessageProducer;
+import org.example.services.QueueService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/tickets")
 public class LotteryTicketController implements LotteryTicketControllerInterface {
 
     private final LotteryTicketMapperInterface mapper;
-    private final MessageProducer messageProducer;
+    private final QueueService queueService;
     private final ObjectMapper objectMapper;
 
     @Autowired
     public LotteryTicketController(LotteryTicketMapperInterface mapper,
-                                   MessageProducer messageProducer,
-                                   ObjectMapper objectMapper) {
+                                   QueueService queueService,
+                                   @Qualifier("webMapper") ObjectMapper objectMapper) {
         this.mapper = mapper;
-        this.messageProducer = messageProducer;
+        this.queueService = queueService;
         this.objectMapper = objectMapper;
     }
 
     @GetMapping
-    public ResponseEntity<List<LotteryTicket>> getAllTickets() {
-        // Генерация уникального идентификатора корреляции
-        String correlationId = generateCorrelationId();
-        LotteryTicket buffer = new LotteryTicket();
-        buffer.setId(-100L);  // Используем специальное значение для запроса всех билетов
-
-        // Отправляем запрос на получение всех билетов
-        messageProducer.sendMessage("GET", buffer, correlationId);
-
-        // Ожидаем ответ
-        String responseMessage = messageProducer.waitForResponse(correlationId);
-        // возвращается null. Проверить с нормальным гпт
-
-        if (responseMessage != null) {
-            // Десериализация JSON-строки в список объектов LotteryTicket
-            List<LotteryTicket> tickets = deserializeTickets(responseMessage);
-
-            // Возвращаем список билетов в формате JSON
-            return ResponseEntity.ok(tickets);
-        } else {
-            // В случае отсутствия ответа возвращаем статус ожидания
-            return ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT).build();
-        }
+    public ResponseEntity<List<LotteryTicketDTO>> getAllTickets() {
+        List<LotteryTicketDTO> response = queueService.getAllTickets();
+        return ResponseEntity.ok(response);
     }
 
 
     @GetMapping("/{id}")
     public ResponseEntity<LotteryTicketDTO> getTicketById(@PathVariable("id") Long id) {
-        LotteryTicket ticket = new LotteryTicket();
-        ticket.setId(id);
+        TicketMessageWebDTO response = queueService.getTicketById(id);
+        LotteryTicketDTO lotteryTicketDTO = mapper.toDto(response);
+        System.out.println("Контроллер : "+ lotteryTicketDTO);
+        return ResponseEntity.ok(lotteryTicketDTO);
 
-        String correlationId = generateCorrelationId();
-
-        // Отправляем запрос на получение тикета по ID
-        messageProducer.sendMessage("GET", ticket, correlationId);
-
-        // Ожидаем ответ
-        String responseMessage = messageProducer.waitForResponse(correlationId);
-
-        if (responseMessage != null) {
-            // Преобразуем сообщение в нужный формат (например, в DTO)
-            // И возвращаем его
-            return ResponseEntity.ok(new LotteryTicketDTO());
-        } else {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-        }
+//        if (responseMessage != null) {
+//            // Преобразуем сообщение в нужный формат (например, в DTO)
+//            // И возвращаем его
+//            return ResponseEntity.ok(new LotteryTicketDTO());
+//        } else {
+//            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+//        }
     }
 
     @PostMapping
     public ResponseEntity<LotteryTicketDTO> createTicket(@RequestBody LotteryTicketDTO ticketDTO) {
-        LotteryTicket ticket = mapper.toEntity(ticketDTO);
-        String correlationId = generateCorrelationId();
+        TicketMessageWebDTO ticket = mapper.toServiceDto(ticketDTO);
+        ticket.setMessageId(generateCorrelationId());
+        ticket.setRequestType("CREATE");
 
         // Отправляем запрос на создание билета
-        messageProducer.sendMessage("CREATE", ticket, correlationId);
+        queueService.sendToRequestQueue(ticket);
 
         // Разобраться с обратной отправкой и получением ответа
 
         // Ожидаем ответ
-        String responseMessage = messageProducer.waitForResponse(correlationId);
+        TicketMessageWebDTO responseMessage = queueService.receiveFromResponseQueue();
 
         if (responseMessage != null) {
-            // Преобразуем сообщение в нужный формат и возвращаем его
-            return ResponseEntity.status(HttpStatus.CREATED).body(new LotteryTicketDTO());
+            return ResponseEntity.status(HttpStatus.CREATED).body(mapper.toDto(responseMessage));
         } else {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
@@ -104,18 +81,19 @@ public class LotteryTicketController implements LotteryTicketControllerInterface
 
     @Override
     public ResponseEntity<LotteryTicketDTO> updateTicket(Long id, LotteryTicketDTO updatedTicket) {
-        LotteryTicket ticket = mapper.toEntity(updatedTicket);
-        ticket.setId(id); // Устанавливаем ID для обновления
-        String correlationId = generateCorrelationId();
+        updatedTicket.setId(id);
+        TicketMessageWebDTO ticket = mapper.toServiceDto(updatedTicket);
+        ticket.setMessageId(generateCorrelationId());
+        ticket.setRequestType("UPDATE");
 
         // Отправляем запрос на обновление билета
-        messageProducer.sendMessage("UPDATE", ticket, correlationId);
+        queueService.sendToRequestQueue(ticket);
 
         // Ожидаем ответ
-        String responseMessage = messageProducer.waitForResponse(correlationId);
+        TicketMessageWebDTO responseMessage = queueService.receiveFromResponseQueue();
 
         if (responseMessage != null) {
-            return ResponseEntity.status(HttpStatus.ACCEPTED).body(new LotteryTicketDTO());
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(mapper.toDto(responseMessage));
         } else {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
@@ -123,13 +101,17 @@ public class LotteryTicketController implements LotteryTicketControllerInterface
 
     @Override
     public ResponseEntity<Void> deleteTicket(Long id) {
-        String correlationId = generateCorrelationId();
-
+        LotteryTicketDTO lotteryTicketDTO = new LotteryTicketDTO();
+        lotteryTicketDTO.setId(id);
+        TicketMessageWebDTO ticketMessageDTO = new TicketMessageWebDTO();
+        ticketMessageDTO.setMessageId(generateCorrelationId());
+        ticketMessageDTO.setRequestType("DELETE");
+        ticketMessageDTO.setTicket(lotteryTicketDTO);
         // Отправляем запрос на удаление билета
-        messageProducer.sendMessage("DELETE:" + id, correlationId);
+        queueService.sendToRequestQueue(ticketMessageDTO);
 
         // Ожидаем ответ
-        String responseMessage = messageProducer.waitForResponse(correlationId);
+        TicketMessageWebDTO responseMessage = queueService.receiveFromResponseQueue();
 
         if (responseMessage != null) {
             return ResponseEntity.status(HttpStatus.ACCEPTED).build();
@@ -140,7 +122,7 @@ public class LotteryTicketController implements LotteryTicketControllerInterface
 
     // Метод для генерации уникального идентификатора корреляции
     private String generateCorrelationId() {
-        return String.valueOf(System.currentTimeMillis());
+        return String.valueOf(UUID.randomUUID());
     }
 
     private List<LotteryTicket> deserializeTickets(String json) {
