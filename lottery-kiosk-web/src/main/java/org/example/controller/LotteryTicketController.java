@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -45,17 +46,7 @@ public class LotteryTicketController implements LotteryTicketControllerInterface
     @GetMapping("/{id}")
     public ResponseEntity<LotteryTicketDTO> getTicketById(@PathVariable("id") Long id) {
         TicketMessageWebDTO response = queueService.getTicketById(id);
-        LotteryTicketDTO lotteryTicketDTO = mapper.toDto(response);
-        System.out.println("Контроллер : "+ lotteryTicketDTO);
-        return ResponseEntity.ok(lotteryTicketDTO);
-
-//        if (responseMessage != null) {
-//            // Преобразуем сообщение в нужный формат (например, в DTO)
-//            // И возвращаем его
-//            return ResponseEntity.ok(new LotteryTicketDTO());
-//        } else {
-//            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
-//        }
+        return ResponseEntity.ok(response.getTicket());
     }
 
     @PostMapping

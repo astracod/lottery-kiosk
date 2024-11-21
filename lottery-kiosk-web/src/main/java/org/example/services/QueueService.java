@@ -43,11 +43,6 @@ public class QueueService {
     }
 
 
-    public TicketMessageWebDTO getResponse(String messageId) {
-        return responseStorage.get(messageId); // Возвращаем ответ, если он есть
-    }
-
-
     public TicketMessageWebDTO receiveFromResponseQueue() {
         // Десериализуем и получаем ответ из очереди ответов
         String jsonResponse = String.valueOf(rabbitTemplate.receiveAndConvert("responseQueue"));
@@ -64,15 +59,7 @@ public class QueueService {
         String jsonTicket = serializeToJson(ticketMessageDTO);
         // Отправляем запрос на получение всех билетов
         rabbitTemplate.convertAndSend("requestQueue", jsonTicket);
-
         TicketMessageWebDTO dto = receiveFromResponseQueue();
-
-        if (dto != null && responseStorage.containsKey(dto.getMessageId())) {
-            responseStorage.remove(dto.getMessageId());
-        } else if (dto != null && !responseStorage.containsKey(dto.getMessageId())) {
-            responseStorage.put(dto.getMessageId(), dto);
-        }
-        assert Objects.requireNonNull(dto).getTicketList() != null;
         return dto.getTicketList();
     }
 
@@ -85,18 +72,17 @@ public class QueueService {
         lotteryTicket.setId(ticketId);
         requestMessage.setTicket(lotteryTicket);
 
-        responseStorage.put(requestMessage.getMessageId(),requestMessage);
+        responseStorage.put(requestMessage.getMessageId(), requestMessage);
         String jsonTicket = serializeToJson(requestMessage);
-        System.out.println("Сервис контроллера : "+ jsonTicket);
         // Отправляем запрос в очередь и ожидаем ответ
         rabbitTemplate.convertAndSend("requestQueue", jsonTicket);
-        TicketMessageWebDTO dto = receiveFromResponseQueue();
-        System.out.println("Сервис контроллера ДТО : "+ dto);
-        if (dto != null && dto.getTicket() != null){
-            return dto;
-        }
+        // Получаем ответ из очереди
 
-        return new TicketMessageWebDTO();
+
+        // метод для получения билета
+        String jsonResponse = String.valueOf(rabbitTemplate.receiveAndConvert("responseQueue"));
+        TicketMessageWebDTO dto = deserializeString(jsonResponse);
+        return dto;
     }
 
     private String serializeToJson(TicketMessageWebDTO message) {
@@ -105,28 +91,6 @@ public class QueueService {
         } catch (JsonProcessingException e) {
             e.printStackTrace();
             return null;
-        }
-    }
-
-    private LotteryTicketDTO deserializeTicketData(String ticketData) {
-
-        try {
-            return objectMapper.readValue(ticketData, LotteryTicketDTO.class);
-        } catch (JsonProcessingException e) {
-            System.out.println("Failed to deserialize ticket data: " + ticketData);
-            System.out.println("Error from Service: " + e);
-            return null;
-        }
-    }
-
-    private List<LotteryTicketDTO> deserializeToList(String jsonList) {
-        try {
-            return objectMapper.readValue(jsonList,
-                    new TypeReference<List<LotteryTicketDTO>>() {
-                    });
-        } catch (JsonProcessingException e) {
-            e.printStackTrace();
-            return Collections.emptyList();
         }
     }
 
